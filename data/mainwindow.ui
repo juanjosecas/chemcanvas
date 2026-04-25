@@ -97,6 +97,8 @@
     </property>
     <addaction name="actionGenSmiles"/>
     <addaction name="actionReadSmiles"/>
+    <addaction name="separator"/>
+    <addaction name="actionCalcProperties"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -235,6 +237,11 @@
   <action name="actionReadSmiles">
    <property name="text">
     <string>Read Smiles</string>
+   </property>
+  </action>
+  <action name="actionCalcProperties">
+   <property name="text">
+    <string>Calculate Properties (RDKit)</string>
    </property>
   </action>
   <action name="actionAbout">
