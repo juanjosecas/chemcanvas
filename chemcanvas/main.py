@@ -1031,12 +1031,14 @@ class Window(QMainWindow, Ui_MainWindow):
         mol, smiles = self._get_last_mol_smiles()
         if smiles is None:
             return
+        # Canonicalize the input once for comparison; strip_salts returns canonical form.
+        canon_input = rdkit_properties.canonical_smiles(smiles)
         stripped = rdkit_properties.strip_salts(smiles)
         if stripped is None:
             QMessageBox.warning(self, "Salt Stripping Failed",
                 "Could not strip salts from this molecule.")
             return
-        if stripped == smiles or stripped == rdkit_properties.canonical_smiles(smiles):
+        if stripped == canon_input:
             self.showStatus("No salts detected – molecule is already a single fragment.")
             return
         dlg = TextBoxDialog("Largest Fragment (SMILES):", stripped, self)
@@ -1113,6 +1115,7 @@ class Window(QMainWindow, Ui_MainWindow):
     def _onIupacNameFetched(self, name, error):
         """Callback from the IUPAC name background thread."""
         self._iupac_thread.quit()
+        self._iupac_fetcher.fetchFinished.disconnect(self._onIupacNameFetched)
         self._iupac_fetcher.deleteLater()
         self.clearStatus()
         if error:

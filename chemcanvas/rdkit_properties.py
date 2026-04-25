@@ -138,6 +138,13 @@ def canonical_smiles(smiles):
 # Lipinski Ro5
 # ---------------------------------------------------------------------------
 
+# Lipinski Rule-of-Five thresholds
+LIPINSKI_MW_MAX  = 500
+LIPINSKI_LOGP_MAX = 5
+LIPINSKI_HBD_MAX  = 5
+LIPINSKI_HBA_MAX  = 10
+
+
 def lipinski_ro5(smiles):
     """Check Lipinski's Rule of Five for a SMILES string.
 
@@ -158,7 +165,12 @@ def lipinski_ro5(smiles):
     hbd  = rdMolDescriptors.CalcNumHBD(mol)
     hba  = rdMolDescriptors.CalcNumHBA(mol)
 
-    violations = sum([mw > 500, logp > 5, hbd > 5, hba > 10])
+    violations = sum([
+        mw   > LIPINSKI_MW_MAX,
+        logp > LIPINSKI_LOGP_MAX,
+        hbd  > LIPINSKI_HBD_MAX,
+        hba  > LIPINSKI_HBA_MAX,
+    ])
     return {
         "mol_weight": mw,
         "logp":       logp,

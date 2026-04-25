@@ -573,7 +573,7 @@ class IupacNameFetcher(QObject):
         url = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/"
                "%s/property/IUPACName/JSON" % encoded)
         try:
-            response = urllib.request.urlopen(url, timeout=15)
+            response = urllib.request.urlopen(url, timeout=10)
             data = json.loads(response.read().decode("utf-8"))
             name = data["PropertyTable"]["Properties"][0]["IUPACName"]
             self.fetchFinished.emit(name, "")
