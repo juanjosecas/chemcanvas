@@ -33,6 +33,7 @@ from fileformats import *
 from template_manager import (TemplateManager, find_template_icon,
     TemplateChooserDialog, TemplateManagerDialog, TemplateSearchWidget)
 from fileformat_smiles import Smiles
+import rdkit_properties
 from widgets import (PaletteWidget, TextBoxDialog, UpdateDialog, UpdateChecker,
     PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog, ColorButton, TextEdit)
 from settings_ui import SettingsDialog, ImageExportSettingsDialog
@@ -253,6 +254,9 @@ class Window(QMainWindow, Ui_MainWindow):
         self.actionDrawingSettings.triggered.connect(self.drawingSettings)
         self.actionCheckForUpdate.triggered.connect(self.checkForUpdate)
         self.actionAbout.triggered.connect(self.showAbout)
+        # RDKit properties – wire up programmatically so it works even when
+        # ui_mainwindow.py has not been regenerated from mainwindow.ui yet.
+        self._setup_calc_properties_action()
 
         templatesBtn.clicked.connect(self.showTemplateChooserDialog)
 
@@ -821,7 +825,72 @@ class Window(QMainWindow, Ui_MainWindow):
         except Exception as e:
             self.showException(e)
 
-    # ------------------------- Others -------------------------------
+    def _setup_calc_properties_action(self):
+        """Add 'Calculate Properties (RDKit)' action to the Tools menu.
+
+        Done programmatically so it works even before ui_mainwindow.py is
+        regenerated from the updated mainwindow.ui.
+        """
+        if hasattr(self, "actionCalcProperties"):
+            # Already created by the generated UI class – just connect.
+            self.actionCalcProperties.triggered.connect(self.calculateProperties)
+            return
+        action = QAction("Calculate Properties (RDKit)", self)
+        action.triggered.connect(self.calculateProperties)
+        self.menuTools.addAction(action)
+        self.actionCalcProperties = action
+
+    def calculateProperties(self):
+        """Calculate physicochemical properties for the last molecule on the
+        canvas using RDKit, show a dialog, and place a properties text box
+        immediately below the molecular drawing.
+        """
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for property calculation.\n"
+                "Install it with:  pip install rdkit")
+            return
+
+        mols = [obj for obj in App.paper.objects if obj.class_name == "Molecule"]
+        if not mols:
+            self.showStatus("No molecule found. Please draw a molecule first.")
+            return
+
+        mol = mols[-1]
+        try:
+            smiles_gen = Smiles()
+            smiles = smiles_gen.generate(mol)
+        except Exception as e:
+            self.showException(e)
+            return
+
+        props = rdkit_properties.calculate_properties(smiles)
+        if props is None:
+            QMessageBox.warning(self, "Property Calculation Failed",
+                "Could not parse the molecule SMILES with RDKit.\n"
+                "The structure may contain unsupported features.")
+            return
+
+        # Show properties in a dialog so the user can copy them
+        plain_text = rdkit_properties.format_properties_plain(props)
+        dlg = TextBoxDialog("Physicochemical Properties:", plain_text, self)
+        dlg.setWindowTitle("RDKit Properties")
+        dlg.exec()
+
+        # Place a formatted text box on the canvas below the molecule
+        x1, y1, x2, y2 = mol.bounding_box()
+        cx = (x1 + x2) / 2.0
+        # 10-pixel gap between molecule bottom and text top
+        gap = 10
+        text_obj = Text()
+        text_obj.text = rdkit_properties.format_properties_html(props)
+        text_obj.font_size = 9
+        text_obj.set_pos(cx, y2 + gap)
+        App.paper.addObject(text_obj)
+        text_obj.draw()
+        App.paper.save_state_to_undo_stack("Add RDKit Properties")
+
+
 
     def drawingSettings(self):
         dlg = SettingsDialog(self)
