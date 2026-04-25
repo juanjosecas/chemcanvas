@@ -35,6 +35,7 @@ from template_manager import (TemplateManager, find_template_icon,
 from fileformat_smiles import Smiles
 import rdkit_properties
 from widgets import (PaletteWidget, TextBoxDialog, UpdateDialog, UpdateChecker,
+    IupacNameFetcher,
     PixmapButton, FlowLayout, SearchBox, wait, ErrorDialog, ColorButton, TextEdit)
 from settings_ui import SettingsDialog, ImageExportSettingsDialog
 
@@ -257,6 +258,7 @@ class Window(QMainWindow, Ui_MainWindow):
         # RDKit properties – wire up programmatically so it works even when
         # ui_mainwindow.py has not been regenerated from mainwindow.ui yet.
         self._setup_calc_properties_action()
+        self._setup_extra_tools_actions()
 
         templatesBtn.clicked.connect(self.showTemplateChooserDialog)
 
@@ -890,6 +892,235 @@ class Window(QMainWindow, Ui_MainWindow):
         text_obj.draw()
         App.paper.save_state_to_undo_stack("Add RDKit Properties")
 
+
+    def _setup_extra_tools_actions(self):
+        """Add extra Tools-menu actions programmatically.
+
+        Mirrors the approach used by ``_setup_calc_properties_action`` so
+        that new features work even before mainwindow.ui is regenerated.
+        """
+        menu = self.menuTools
+
+        def add_action(title, slot):
+            action = QAction(title, self)
+            action.triggered.connect(slot)
+            menu.addAction(action)
+
+        menu.addSeparator()
+        add_action("Generate InChI / InChIKey",     self.generateInChI)
+        add_action("Copy SMILES to Clipboard",       self.copyAsSmiles)
+        add_action("Copy InChI to Clipboard",        self.copyAsInChI)
+
+        menu.addSeparator()
+        add_action("Canonical SMILES",               self.canonicalizeSmiles)
+        add_action("Strip Salts / Largest Fragment", self.stripSalts)
+
+        menu.addSeparator()
+        add_action("Lipinski Ro5 Drug-likeness",     self.lipinskiRo5)
+        add_action("Validate Structure",             self.validateStructure)
+
+        menu.addSeparator()
+        add_action("IUPAC Name Lookup (PubChem)",    self.lookupIupacName)
+
+    # ------------------------------------------------------------------
+    # Helper: get last molecule + its SMILES, with error reporting
+    # ------------------------------------------------------------------
+
+    def _get_last_mol_smiles(self):
+        """Return (mol, smiles) for the topmost molecule, or (None, None)."""
+        mols = [obj for obj in App.paper.objects if obj.class_name == "Molecule"]
+        if not mols:
+            self.showStatus("No molecule found. Please draw a molecule first.")
+            return None, None
+        mol = mols[-1]
+        try:
+            smiles = Smiles().generate(mol)
+        except Exception as e:
+            self.showException(e)
+            return None, None
+        return mol, smiles
+
+    # ------------------------------------------------------------------
+    # InChI / InChIKey
+    # ------------------------------------------------------------------
+
+    def generateInChI(self):
+        """Generate InChI and InChIKey for the topmost molecule."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for InChI generation.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        result = rdkit_properties.generate_inchi(smiles)
+        if result is None:
+            QMessageBox.warning(self, "InChI Generation Failed",
+                "Could not generate InChI for this molecule.")
+            return
+        text = "InChI:     %s\n\nInChIKey:  %s" % (result["inchi"], result["inchikey"])
+        dlg = TextBoxDialog("InChI / InChIKey:", text, self)
+        dlg.setWindowTitle("InChI / InChIKey")
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Clipboard – Copy as SMILES / InChI
+    # ------------------------------------------------------------------
+
+    def copyAsSmiles(self):
+        """Copy the SMILES of the topmost molecule to the clipboard."""
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        QApplication.clipboard().setText(smiles)
+        self.showStatus("SMILES copied to clipboard.")
+
+    def copyAsInChI(self):
+        """Copy the InChI of the topmost molecule to the clipboard."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for InChI generation.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        result = rdkit_properties.generate_inchi(smiles)
+        if result is None:
+            QMessageBox.warning(self, "InChI Generation Failed",
+                "Could not generate InChI for this molecule.")
+            return
+        QApplication.clipboard().setText(result["inchi"])
+        self.showStatus("InChI copied to clipboard.")
+
+    # ------------------------------------------------------------------
+    # Canonical SMILES
+    # ------------------------------------------------------------------
+
+    def canonicalizeSmiles(self):
+        """Show the RDKit canonical SMILES for the topmost molecule."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for SMILES canonicalization.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        canon = rdkit_properties.canonical_smiles(smiles)
+        if canon is None:
+            QMessageBox.warning(self, "Canonicalization Failed",
+                "Could not canonicalize the SMILES with RDKit.")
+            return
+        dlg = TextBoxDialog("Canonical SMILES:", canon, self)
+        dlg.setWindowTitle("Canonical SMILES")
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Strip Salts / Largest Fragment
+    # ------------------------------------------------------------------
+
+    def stripSalts(self):
+        """Show the SMILES of the largest fragment (salt stripped)."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for salt stripping.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        stripped = rdkit_properties.strip_salts(smiles)
+        if stripped is None:
+            QMessageBox.warning(self, "Salt Stripping Failed",
+                "Could not strip salts from this molecule.")
+            return
+        if stripped == smiles or stripped == rdkit_properties.canonical_smiles(smiles):
+            self.showStatus("No salts detected – molecule is already a single fragment.")
+            return
+        dlg = TextBoxDialog("Largest Fragment (SMILES):", stripped, self)
+        dlg.setWindowTitle("Strip Salts")
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Lipinski Ro5
+    # ------------------------------------------------------------------
+
+    def lipinskiRo5(self):
+        """Show Lipinski Rule-of-Five drug-likeness for the topmost molecule."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for Lipinski Ro5.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        props = rdkit_properties.lipinski_ro5(smiles)
+        if props is None:
+            QMessageBox.warning(self, "Lipinski Ro5 Failed",
+                "Could not calculate Lipinski properties for this molecule.")
+            return
+        plain_text = rdkit_properties.format_lipinski_plain(props)
+        dlg = TextBoxDialog("Lipinski Rule of Five:", plain_text, self)
+        dlg.setWindowTitle("Lipinski Ro5")
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Structure Validation
+    # ------------------------------------------------------------------
+
+    def validateStructure(self):
+        """Validate the topmost molecule using RDKit sanitization."""
+        if not rdkit_properties.rdkit_available():
+            QMessageBox.warning(self, "RDKit not installed",
+                "RDKit is required for structure validation.\n"
+                "Install it with:  pip install rdkit")
+            return
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        warnings = rdkit_properties.validate_structure(smiles)
+        if warnings is None:
+            return
+        if not warnings:
+            QMessageBox.information(self, "Structure Validation",
+                "Structure is valid – no issues detected by RDKit.")
+        else:
+            dlg = TextBoxDialog("Validation Warnings:", "\n".join(warnings), self)
+            dlg.setWindowTitle("Structure Validation")
+            dlg.exec()
+
+    # ------------------------------------------------------------------
+    # IUPAC Name Lookup via PubChem
+    # ------------------------------------------------------------------
+
+    def lookupIupacName(self):
+        """Fetch the IUPAC name for the topmost molecule from PubChem."""
+        mol, smiles = self._get_last_mol_smiles()
+        if smiles is None:
+            return
+        self.showStatus("Fetching IUPAC name from PubChem …")
+        self._iupac_thread = QThread(self)
+        self._iupac_fetcher = IupacNameFetcher(smiles)
+        self._iupac_fetcher.moveToThread(self._iupac_thread)
+        self._iupac_fetcher.fetchFinished.connect(self._onIupacNameFetched)
+        self._iupac_thread.started.connect(self._iupac_fetcher.fetch)
+        self._iupac_thread.finished.connect(self._iupac_thread.deleteLater)
+        self._iupac_thread.start()
+
+    def _onIupacNameFetched(self, name, error):
+        """Callback from the IUPAC name background thread."""
+        self._iupac_thread.quit()
+        self._iupac_fetcher.deleteLater()
+        self.clearStatus()
+        if error:
+            QMessageBox.warning(self, "IUPAC Name Lookup", error)
+        else:
+            dlg = TextBoxDialog("IUPAC Name:", name, self)
+            dlg.setWindowTitle("IUPAC Name (PubChem)")
+            dlg.exec()
 
 
     def drawingSettings(self):
