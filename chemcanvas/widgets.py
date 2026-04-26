@@ -7,6 +7,7 @@
 import os, re
 import platform
 import urllib.request
+import urllib.error
 from shutil import which
 
 from PyQt5.QtCore import (Qt, pyqtSignal, QPoint, QEventLoop, QTimer, QUrl,
@@ -550,6 +551,39 @@ class UpdateChecker(QObject):
             #print(str(e))
             self.updateCheckFinished.emit("","")
 
+
+class IupacNameFetcher(QObject):
+    """Worker object that fetches the IUPAC name for a SMILES string from
+    PubChem in a background thread.
+
+    Emits ``fetchFinished(name, error)`` when done.  On success ``error``
+    is an empty string; on failure ``name`` is an empty string and
+    ``error`` contains a human-readable message.
+    """
+    fetchFinished = pyqtSignal(str, str)  # iupac_name, error_message
+
+    def __init__(self, smiles):
+        QObject.__init__(self)
+        self.smiles = smiles
+
+    def fetch(self):
+        import json
+        import urllib.parse
+        encoded = urllib.parse.quote(self.smiles, safe="")
+        url = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/smiles/"
+               "%s/property/IUPACName/JSON" % encoded)
+        try:
+            response = urllib.request.urlopen(url, timeout=10)
+            data = json.loads(response.read().decode("utf-8"))
+            name = data["PropertyTable"]["Properties"][0]["IUPACName"]
+            self.fetchFinished.emit(name, "")
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                self.fetchFinished.emit("", "Compound not found in PubChem.")
+            else:
+                self.fetchFinished.emit("", "HTTP error %d from PubChem." % e.code)
+        except Exception as e:
+            self.fetchFinished.emit("", "Failed to retrieve IUPAC name:\n%s" % str(e))
 
 class ErrorDialog(QDialog):
     def __init__(self, parent, title, description):
