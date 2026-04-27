@@ -11,6 +11,7 @@ from app_data import periodic_table
 from molecule import StereoChemistry
 from fileformat import *
 from coords_generator import calculate_coords
+from src.chem.smiles_utils import generate_valid_smiles
 
 # TODO :
 # implement Molecule.explicit_hydrogens_to_real_atoms()
@@ -357,58 +358,10 @@ class Smiles(FileFormat):
             return
 
     def generate( self, mol):
-        if not mol.is_connected():
-            raise Exception("SMILES : Cannot encode disconnected compounds")
-        #mol = molec.copy()
-        self.molecule = mol
-        self.ring_joins = []
-        self._processed_atoms = []
-        self.branches = {}
-        self._stereo_bonds_to_code = {} # for bond it will contain character it uses
-        self._stereo_bonds_to_others = {} # for bond it will contain the other bonds
-        self._stereo_centers = {}
-        # at first we mark all the atoms with aromatic bonds
-        # it is much simple to do it now when all the edges are present
-        # we can make use of the properties attribute of the vertex
-        for b in mol.bonds:
-            if b.type == "delocalized":
-                for a in b.vertices:
-                    a.properties_["aromatic"] = 1
-        # stereochemistry information preparation # TODO : uncomment this
-        mol.detect_stereochemistry_from_coords()
-        for st in mol.stereochemistry:
-            if st.type == StereoChemistry.CIS_TRANS:
-                end1, inside1, inside2, end2 = st.references
-                e1 = end1.get_edge_leading_to( inside1)
-                e2 = end2.get_edge_leading_to( inside2)
-                self._stereo_bonds_to_others[ e1] = self._stereo_bonds_to_others.get( e1, []) + [(e2, st)]
-                self._stereo_bonds_to_others[ e2] = self._stereo_bonds_to_others.get( e2, []) + [(e1, st)]
-            elif isinstance( st, stereochemistry.tetrahedral_stereochemistry):
-                self._stereo_centers[st.center] = st
-            else:
-                pass # we cannot handle this
-
-        ret = ''.join( [i for i in self._get_smiles( mol)])
-        mol.reconnect_temporarily_disconnected_edges()
-        # this is needed because the way temporarily_disconnected edges are handled is not compatible with the way smiles
-        # generation works - it splits the molecule while reusing the same atoms and bonds and thus disconnected bonds accounting fails
-        for e in mol.edges:
-            e.disconnected = False
-        # here tetrahedral stereochemistry is added
-        for v, st in self._stereo_centers.items():
-            processed_neighbors = []
-            for n in self._processed_atoms:
-                if n in v.neighbors:
-                    processed_neighbors.append( n)
-                elif not v.auto_hydrogens and v.hydrogens and n is v:
-                    processed_neighbors.append( ExplicitHydrogen())
-            count = match_atom_lists( st.references, processed_neighbors)
-            clockwise = st.value == st.CLOCKWISE
-            if count % 2 == 1:
-                clockwise = not clockwise
-            ch_symbol = clockwise and "@@" or "@"
-            ret = ret.replace( "{{stereo%d}}" % mol.vertices.index(v), ch_symbol)
-        return ret
+        result = generate_valid_smiles(mol)
+        if not result["valid"]:
+            raise Exception("SMILES : %s" % (result["error"] or "Invalid generated SMILES"))
+        return result["smiles"]
 
 
 
@@ -665,4 +618,3 @@ class ExplicitHydrogen:
         if isinstance(other, ExplicitHydrogen):
             return True
         return False
-

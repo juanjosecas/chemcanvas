@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QSpinBox, QFontComboBox, QSizePolicy, QLabel, QMessageBox, QSlider, QDialog, QDoubleSpinBox
 )
 
-sys.path.append(os.path.dirname(__file__)) # for enabling python 2 like import
+sys.path.insert(0, os.path.dirname(__file__)) # for enabling python 2 like import
 
 from __init__ import __version__, COPYRIGHT_YEAR, AUTHOR_NAME, AUTHOR_EMAIL
 from ui_mainwindow import Ui_MainWindow

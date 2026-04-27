@@ -32,7 +32,7 @@ else:
 setup(
     name='chemcanvas',
     #version="0.8.0",
-    packages=['chemcanvas'],
+    packages=['chemcanvas', 'src', 'src.chem'],
     entry_points={
       'gui_scripts': ['chemcanvas=chemcanvas.main:main'],
     },
